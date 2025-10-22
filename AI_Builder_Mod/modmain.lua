@@ -48,10 +48,12 @@ Assets = {
 
 -- 组件注册
 local components = {
-    "ai_builder",       -- 建设AI组件
-    "ai_planner",       -- 规划系统组件
-    "ai_manager",       -- 资源管理组件
-    "ai_communicator",  -- 通信组件
+    "ai_builder",
+    "ai_planner", 
+    "ai_manager",
+    "ai_communicator",
+    "ai_code_executor",      -- 新增：代码执行器
+    "ai_builder_controller", -- 新增：主控制器
 }
 
 for _, component in ipairs(components) do

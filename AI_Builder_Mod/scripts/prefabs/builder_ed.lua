@@ -136,10 +136,19 @@ local function fn()
     inst:AddComponent("ai_planner")
     inst:AddComponent("ai_manager")
     inst:AddComponent("ai_communicator")
+    inst:AddComponent("ai_code_executor")  -- 代码执行器
+    inst:AddComponent("ai_builder_controller")  -- 主控制器
     
     -- 大脑组件
     inst:SetBrain(BuilderBrain)
     inst:SetStateGraph("SGbuilder_ed")
+    
+    -- 初始化AI控制器
+    inst:DoTaskInTime(1, function()
+        if inst.components.ai_builder_controller then
+            inst.components.ai_builder_controller:OnEntitySpawn()
+        end
+    end)
     
     -- 死亡处理
     inst.components.health:SetOnDeathCallback(function(inst)
@@ -263,6 +272,26 @@ local function fn()
             SayMessage(inst, suggestion, {1, 1, 0.8})
         else
             SayMessage(inst, "目前资源情况良好，可以考虑扩建基地了。", {0.8, 1, 0.8})
+        end
+    end
+    
+    -- AI调试功能
+    inst:AddComponent("debuggable")
+    inst.components.debuggable.OnDebugRMB = function(inst)
+        if inst.components.ai_builder_controller then
+            local report = inst.components.ai_builder_controller:GetPerformanceReport()
+            print("=== AI Builder性能报告 ===")
+            print("总AI请求:", report.total_ai_requests)
+            print("成功生成:", report.successful_generations)
+            print("失败生成:", report.failed_generations)
+            print("成功率:", string.format("%.2f%%", report.success_rate * 100))
+            print("平均执行时间:", string.format("%.2fs", report.average_execution_time))
+            print("当前任务:", report.current_task)
+            print("代码生成模式:", report.code_generation_enabled and "启用" or "禁用")
+            
+            -- 也在游戏中显示信息
+            SayMessage(inst, string.format("AI成功率: %.1f%%, 当前任务: %s", 
+                report.success_rate * 100, report.current_task), {0.8, 0.8, 1})
         end
     end
     

@@ -10,6 +10,12 @@ local AIManager = Class(function(self, inst)
     self.resource_needs = {}        -- 资源需求
     self.collection_targets = {}    -- 收集目标
     
+    -- 代码执行器
+    self.code_executor = self.inst:AddComponent("ai_code_executor")
+    
+    -- AI服务配置
+    self.ai_service_url = "http://localhost:5000"
+    
     -- 资源类型和优先级
     self.resource_types = {
         basic = {
@@ -462,6 +468,231 @@ function AIManager:GetCollectionSuggestion()
     end
     
     return nil
+end
+
+-- AI代码生成和执行接口
+function AIManager:RequestAICodeGeneration(task_type, context)
+    """请求AI生成任务代码"""
+    
+    -- 准备请求数据
+    local request_data = {
+        task_type = task_type,
+        character_state = self:GetCharacterState(),
+        environment_info = self:GetEnvironmentInfo(),
+        available_resources = self.resource_inventory,
+        current_needs = self:GetCurrentNeeds(),
+        context = context or {}
+    }
+    
+    print("[AI管理器] 请求AI生成代码，任务类型:", task_type)
+    
+    -- 发送请求到AI服务
+    local success, response = self:SendAIRequest("/generate_lua_code", request_data)
+    
+    if success and response and response.lua_code then
+        print("[AI管理器] 收到AI生成的代码")
+        
+        -- 执行生成的代码
+        local execution_result = self.code_executor:ExecuteGeneratedCode(
+            response.lua_code, 
+            task_type, 
+            request_data
+        )
+        
+        if execution_result.success then
+            print("[AI管理器] AI代码执行成功")
+            return {
+                success = true,
+                code = response.lua_code,
+                result = execution_result.result,
+                execution_time = execution_result.execution_time
+            }
+        else
+            print("[AI管理器] AI代码执行失败，使用后备方案")
+            return {
+                success = false,
+                error = execution_result.error,
+                fallback_action = execution_result.fallback_action,
+                original_code = response.lua_code
+            }
+        end
+    else
+        print("[AI管理器] AI代码生成失败")
+        return {
+            success = false,
+            error = "AI服务请求失败",
+            fallback_action = self.code_executor:GetFallbackAction(task_type)
+        }
+    end
+end
+
+function AIManager:GetCharacterState()
+    """获取角色当前状态"""
+    
+    local state = {
+        health = self.inst.components.health and self.inst.components.health.currenthealth or 100,
+        hunger = self.inst.components.hunger and self.inst.components.hunger.current or 100,
+        sanity = self.inst.components.sanity and self.inst.components.sanity.current or 100,
+        position = self.inst.Transform:GetWorldPosition(),
+        inventory_full = self.inst.components.inventory and self.inst.components.inventory:IsFull() or false,
+        current_tool = self:GetCurrentTool(),
+        time_of_day = TheWorld.state.clock and TheWorld.state.clock:GetNormTime() or 0
+    }
+    
+    return state
+end
+
+function AIManager:GetEnvironmentInfo()
+    """获取环境信息"""
+    
+    local pos = self.inst.Transform:GetWorldPosition()
+    local season = TheWorld.state.season
+    local weather = TheWorld.state.weather
+    
+    -- 查找附近实体
+    local nearby_entities = {}
+    local ents = TheSim:FindEntities(pos.x, pos.y, pos.z, 15)
+    
+    for _, ent in ipairs(ents) do
+        if ent and ent.prefab then
+            table.insert(nearby_entities, {
+                prefab = ent.prefab,
+                distance = self.inst:GetDistanceSqToInst(ent),
+                position = ent.Transform:GetWorldPosition()
+            })
+        end
+    end
+    
+    return {
+        season = season,
+        weather = weather and weather:GetWeatherPercent() or 0,
+        time_remaining = TheWorld.state.clock and TheWorld.state.clock:GetTimeLeftInEra() or 0,
+        nearby_entities = nearby_entities,
+        ground_type = TheWorld.Map:GetTileAtPoint(pos.x, pos.y, pos.z)
+    }
+end
+
+function AIManager:GetCurrentTool()
+    """获取当前装备的工具"""
+    
+    if not self.inst.components.inventory then
+        return nil
+    end
+    
+    local equipped = self.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
+    if equipped then
+        return {
+            prefab = equipped.prefab,
+            uses = equipped.components.finiteuses and equipped.components.finiteuses:GetUses() or nil,
+            tool_type = equipped:HasTag("tool") and equipped.prefab or nil
+        }
+    end
+    
+    return nil
+end
+
+function AIManager:GetCurrentNeeds()
+    """获取当前需求分析"""
+    
+    local needs = {}
+    
+    -- 生存需求
+    if self.inst.components.health and self.inst.components.health.currenthealth < 80 then
+        table.insert(needs, {type = "health", urgency = 0.8, value = self.inst.components.health.currenthealth})
+    end
+    
+    if self.inst.components.hunger and self.inst.components.hunger.current < 70 then
+        table.insert(needs, {type = "food", urgency = 0.7, value = self.inst.components.hunger.current})
+    end
+    
+    if self.inst.components.sanity and self.inst.components.sanity.current < 60 then
+        table.insert(needs, {type = "sanity", urgency = 0.6, value = self.inst.components.sanity.current})
+    end
+    
+    -- 资源需求
+    local resource_report = self:GetResourceReport()
+    for _, need in ipairs(resource_report.high_priority_needs) do
+        table.insert(needs, {
+            type = "resource", 
+            resource_type = need.type, 
+            urgency = need.shortage / 40, 
+            value = need.current
+        })
+    end
+    
+    return needs
+end
+
+function AIManager:SendAIRequest(endpoint, data)
+    """发送请求到AI服务"""
+    
+    -- 这里需要实现HTTP请求功能
+    -- 由于Don't Starve不支持原生HTTP，这里返回模拟数据
+    print("[AI管理器] 模拟发送AI请求到:", endpoint)
+    
+    -- 在实际实现中，这里应该使用mod的HTTP插件或外部进程
+    -- 现在返回一个示例响应以供测试
+    local sample_response = {
+        lua_code = [[
+function ExecuteAITask(inst)
+    -- AI生成的示例代码
+    print("执行AI生成的任务代码")
+    
+    -- 检查角色状态
+    if inst.components.hunger and inst.components.hunger.current < 50 then
+        -- 寻找食物
+        local food = FindEntity(inst, 10, {"_inventoryitem"}, {"INLIMBO"}, {"edible_VEGGIE", "edible_MEAT"})
+        if food then
+            inst.components.locomotor:GoToEntity(food)
+            return {
+                message = "正在前往食物: " .. tostring(food.prefab),
+                action = "goto_food",
+                priority = 0.8
+            }
+        end
+    end
+    
+    -- 收集基础资源
+    local target = FindEntity(inst, 15, {"pickable"}, {"INLIMBO"})
+    if target then
+        inst.components.locomotor:GoToEntity(target)
+        return {
+            message = "正在收集资源: " .. tostring(target.prefab), 
+            action = "collect_resource",
+            priority = 0.6
+        }
+    end
+    
+    return {
+        message = "没有找到合适的任务",
+        action = "idle", 
+        priority = 0.1
+    }
+end
+        ]],
+        explanation = "生成了一个包含基本生存逻辑的任务代码",
+        confidence = 0.85
+    }
+    
+    return true, sample_response
+end
+
+-- 获取代码执行统计
+function AIManager:GetCodeExecutionStats()
+    """获取代码执行统计信息"""
+    return self.code_executor:GetExecutionStats()
+end
+
+-- 清除代码执行历史
+function AIManager:ClearCodeExecutionHistory()
+    """清除代码执行历史"""
+    self.code_executor:ClearHistory()
+end
+
+-- 设置AI安全模式
+function AIManager:SetAISecurityMode(enabled)
+    """设置AI安全模式"""
+    self.code_executor:SetSecurityEnabled(enabled)
 end
 
 return AIManager
